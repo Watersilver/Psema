@@ -1,2 +1,2 @@
 # Psema
-Simple Component based "framework"
+Simple "ECS" "framework"
