@@ -19,6 +19,7 @@ class World {
   }
 
   _removeEntity(entity) {
+    entity.clearComponents();
     this.entities.delete(entity);
     this.entitiesByName.delete(entity.name, entity);
   }
@@ -187,10 +188,7 @@ class World {
           this[name] = method;
         }
 
-        if (components) {
-          this._query = new world.Query(components);
-          this.entities = this._query.entities;
-        }
+        this.components = components;
 
         if (typeof priority === "number") {
           this.priority = priority;
@@ -225,12 +223,20 @@ class World {
           insertIndex = i;
         }
         world.systems.splice(insertIndex, 0, this);
+        if (this.components) {
+          this._query = new world.Query(this.components);
+          this.entities = this._query.entities;
+        }
         this._active = true;
         return true;
       }
 
       deactivate() {
         this._active = false;
+        if (this._query) {
+          this._query.destroy();
+          delete this._query;
+        }
         for (let i = 0; i < world.systems.length; i++) {
           if (world.systems[i] === this) {
             world.systems.splice(i, 1);
@@ -298,6 +304,17 @@ class World {
         if (!this.components.delete(componentType)) return false;
         this.componentNames.delete(componentType.name);
         world.entitiesByComponentType.delete(componentType, this);
+
+        this.refreshQueries();
+
+        return true;
+      }
+
+      clearComponents() {
+        for (const componentType of this.components.delete(componentType)) {
+          this.componentNames.delete(componentType.name);
+          world.entitiesByComponentType.delete(componentType, this);
+        }
 
         this.refreshQueries();
 
