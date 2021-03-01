@@ -36,41 +36,42 @@ player.addComponent(damping);
 player.addComponent(arrowKeyAccelerationTag);
 player.addComponent(div);
 
-const arrowKeyAcceleration = new System({
-  earlyUpdate() {
-    for (const entity of world.entitiesByComponentType.get(arrowKeyAccelerationTag)) {
-      if (!entity.hasComponent(position) || !entity.hasComponent(velocity) || !entity.hasComponent(acceleration)) continue
-        
-      const a = entity.getComponent(acceleration);
-      const dirVec = [0, 0];
-      if (keyboard.isHeld("ArrowLeft")) {
-        dirVec[0] -= 1;
-      }
-      if (keyboard.isHeld("ArrowRight")) {
-        dirVec[0] += 1;
-      }
-      if (keyboard.isHeld("ArrowUp")) {
-        dirVec[1] -= 1;
-      }
-      if (keyboard.isHeld("ArrowDown")) {
-        dirVec[1] += 1;
-      }
-      if (dirVec[0] || dirVec[1]) {
-        const angle = Math.atan2(dirVec[1], dirVec[0]);
-        a.x = 55 * Math.cos(angle);
-        a.y = 55 * Math.sin(angle);
-      } else {
-        a.x = 0;
-        a.y = 0;
+const arrowKeyAcceleration = new System(
+  [arrowKeyAccelerationTag, position, velocity, acceleration],
+  {
+    earlyUpdate() {
+      for (const entity of this.entities) {
+
+        const a = entity.getComponent(acceleration);
+        const dirVec = [0, 0];
+        if (keyboard.isHeld("ArrowLeft")) {
+          dirVec[0] -= 1;
+        }
+        if (keyboard.isHeld("ArrowRight")) {
+          dirVec[0] += 1;
+        }
+        if (keyboard.isHeld("ArrowUp")) {
+          dirVec[1] -= 1;
+        }
+        if (keyboard.isHeld("ArrowDown")) {
+          dirVec[1] += 1;
+        }
+        if (dirVec[0] || dirVec[1]) {
+          const angle = Math.atan2(dirVec[1], dirVec[0]);
+          a.x = 55 * Math.cos(angle);
+          a.y = 55 * Math.sin(angle);
+        } else {
+          a.x = 0;
+          a.y = 0;
+        }
       }
     }
   }
-})
+)
 
-const accelerationSystem = new System({
+const accelerationSystem = new System([acceleration, velocity], {
   calculus(dt) {
-    for (const entity of world.entitiesByComponentType.get(acceleration)) {
-      if (!entity.hasComponent(velocity)) continue;
+    for (const entity of this.entities) {
 
       const a = entity.getComponent(acceleration);
       const v = entity.getComponent(velocity);
@@ -84,10 +85,9 @@ const accelerationSystem = new System({
   }
 }, 1000);
 
-const dampingSystem = new System({
+const dampingSystem = new System([damping, velocity], {
   calculus(dt) {
-    for (const entity of world.entitiesByComponentType.get(damping)) {
-      if (!entity.hasComponent(velocity)) continue;
+    for (const entity of this.entities) {
 
       const d = entity.getComponent(damping);
       const v = entity.getComponent(velocity);
@@ -101,12 +101,11 @@ const dampingSystem = new System({
       }
     }
   }
-}, 900);
+}, {after: accelerationSystem});
 
-const movementSystem = new System({
+const movementSystem = new System([velocity, position], {
   calculus(dt) {
-    for (const entity of world.entitiesByComponentType.get(velocity)) {
-      if (!entity.hasComponent(position)) continue;
+    for (const entity of this.entities) {
 
       const v = entity.getComponent(velocity);
       const p = entity.getComponent(position);
@@ -115,42 +114,17 @@ const movementSystem = new System({
       p.y = p.y + v.y * dt;
     }
   }
-}, 800);
+}, {after: [dampingSystem, accelerationSystem]});
 
-// const movementSystem = new System({
-//   update(deltaT) {
-//     const speed = 150;
-//     for (const entity of world.entitiesByComponentType.get(position)) {
-
-//       const dirVec = [0, 0];
-//       if (keyboard.isHeld("ArrowLeft")) {
-//         dirVec[0] -= 1;
-//       }
-//       if (keyboard.isHeld("ArrowRight")) {
-//         dirVec[0] += 1;
-//       }
-//       if (keyboard.isHeld("ArrowUp")) {
-//         dirVec[1] -= 1;
-//       }
-//       if (keyboard.isHeld("ArrowDown")) {
-//         dirVec[1] += 1;
-//       }
-//       const angle = Math.atan2(dirVec[1], dirVec[0]);
-//       if (dirVec[0] || dirVec[1]) {
-//         entity.getComponent(position).x += speed * Math.cos(angle) * deltaT;
-//         entity.getComponent(position).y += speed * Math.sin(angle) * deltaT;
-//       }
-//     }
-//   }
-// });
-
-const renderSystem = new System({
+const renderSystem = new System([div, position], {
   draw() {
-    for (const entity of world.entitiesByComponentType.get(div)) {
-      if (entity.hasComponent(position)) {
-        entity.getComponent(div).style.left = `${entity.getComponent(position).x}px`;
-        entity.getComponent(div).style.top = `${entity.getComponent(position).y}px`;
-      }
+    for (const entity of this.entities) {
+      entity.getComponent(div).style.left = `${entity.getComponent(position).x}px`;
+      entity.getComponent(div).style.top = `${entity.getComponent(position).y}px`;
     }
   }
+})
+
+document.addEventListener("click", () => {
+  console.log(world.queries)
 })

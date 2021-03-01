@@ -66,13 +66,152 @@ class World {
 
     this.systems = [];
 
+    this.queries = new MapOfSets();
+    this.cachedQueries = new Map();
+
+    this.ComponentType = class ComponentType {
+
+      static tag = Symbol();
+
+      // TODO IMPLEMENT ONDELETE OR SOMETHING ALONG THOSE LINES
+      // TO CLEAN UP SPRITES OR DOM ELEMENTS CREATED ON CREATION
+      // Also on change. If I change a flat component that
+      // points to a dom element with another one, the old one
+      // will still exist. Think about this... Seems bad.
+      constructor(name, defaultValue, onDelete) {
+        if (typeof name !== "string") throw TypeError("name must be string.");
+        if (ComponentType[name]) throw TypeError("Component type " + name + " already exists.");
+        if (name.split(",").length > 1) throw Error("Illegal character ',' in Component name.");
+        // Validate defaultValue
+        if (defaultValue !== null && typeof defaultValue === "object") throw Error("Default value can't be object. Make it a constructor function instead.");
+        this.name = name;
+        this.defaultValue = defaultValue === undefined ? ComponentType.tag : defaultValue;
+        ComponentType[name] = this;
+      }
+    }
+
+    this.Query = class Query {
+
+      constructor(components) {
+        if (components instanceof world.ComponentType) components = [components];
+        components = Array.from(components);
+        this.components = components;
+        let key = [];
+        for (const component of components) {
+          key.push(component.name);
+        }
+        key = key.sort().join(",");
+        if (components.length > 1) {
+          const value = world.cachedQueries.get(key);
+          if (value) {
+            value.queries++;
+          } else {
+            world.cachedQueries.set(key, {list: components, queries: 1});
+
+            // initialize query set
+            for (const entity of world.entities) {
+              entity.refreshQuery(key);
+            }
+          }
+          this.key = key;
+        }
+      }
+
+      get entities() {
+        if (this.key) {
+          return world.queries.get(this.key);
+        } else {
+          return world.entitiesByComponentType(this.components[0]);
+        }
+      }
+
+      destroy() {
+        if (this.key) {
+          const value = world.cachedQueries.get(this.key);
+          value.queries--;
+          if (value.queries < 1) {
+            world.cachedQueries.delete(this.key);
+            world.queries.clearSet(this.key);
+          }
+          delete this.key;
+        }
+      }
+
+    }
+
     this.System = class System {
-      constructor(methods, priority = 0) {
+
+      _determineAfterPriority(after, afterPriority) {
+        if (after instanceof world.System) {
+          if (afterPriority === undefined || afterPriority >= after.priority) {
+            afterPriority = after.priority - 0.1;
+          }
+        } else if (after) {
+          // after is a list or a set
+          for (const system of after) {
+            if (afterPriority === undefined || afterPriority >= system.priority) {
+              afterPriority = system.priority - 0.1;
+            }
+          }
+        }
+
+        return afterPriority;
+      }
+
+      _determineBeforePriority(before, beforePriority) {
+        if (before instanceof world.System) {
+          if (beforePriority === undefined || beforePriority <= before.priority) {
+            beforePriority = before.priority + 0.1;
+          }
+        } else if (before) {
+          // before is a list or a set
+          for (const system of before) {
+            if (beforePriority === undefined || beforePriority <= system.priority) {
+              beforePriority = system.priority + 0.1;
+            }
+          }
+        }
+
+        return beforePriority;
+      }
+
+      constructor(components, methods, priority = 0) {
+
+        if (!Array.isArray(components) && !(components instanceof Set) && !(components instanceof world.ComponentType)) {
+          priority = methods || 0;
+          methods = components;
+          components = null;
+        }
+
         for (const [name, method] of Object.entries(methods)) {
           this[name] = method;
         }
 
-        this.priority = priority;
+        if (components) {
+          this._query = new world.Query(components);
+          this.entities = this._query.entities;
+        }
+
+        if (typeof priority === "number") {
+          this.priority = priority;
+        } else {
+          this.after = priority.after;
+          this.before = priority.before;
+          // Set priority from after
+          let afterPriority = this._determineAfterPriority(this.after);
+          // Set priority from before
+          let beforePriority = this._determineBeforePriority(this.before);
+          if (afterPriority && beforePriority) {
+            if (afterPriority > beforePriority) throw Error(`Check your system priority, because something is wrong. before is ${beforePriority}, after is ${afterPriority}`);
+            this.priority = (afterPriority + beforePriority) * 0.5;
+          } else if (afterPriority) {
+            this.priority = afterPriority;
+          } else if (beforePriority) {
+            this.priority = beforePriority;
+          } else {
+            this.priority = 0;
+          }
+        }
         this._active = false;
         this.activate();
       }
@@ -101,21 +240,6 @@ class World {
       }
     }
 
-    this.ComponentType = class ComponentType {
-
-      static tag = Symbol();
-
-      constructor(name, defaultValue) {
-        if (typeof name !== "string") throw TypeError("name must be string.");
-        if (ComponentType[name]) throw TypeError("Component type " + name + " already exists.");
-        // Validate defaultValue
-        if (defaultValue !== null && typeof defaultValue === "object") throw Error("Default value can't be object. Make it a constructor function instead.");
-        this.name = name;
-        this.defaultValue = defaultValue === undefined ? ComponentType.tag : defaultValue;
-        ComponentType[name] = this;
-      }
-    }
-
     this.Entity = class Entity {
       constructor(name) {
         if (name || name === "") {
@@ -126,6 +250,29 @@ class World {
         world._addEntity(this);
 
         this.components = new Map();
+        this.componentNames = new Set();
+      }
+
+      refreshQueries() {
+        for (const [queryKey] of world.cachedQueries) {
+          this.refreshQuery(queryKey);
+        }
+      }
+
+      refreshQuery(queryKey) {
+        let belongInQuery = true;
+        queryKey = queryKey.split(",");
+        for (const componentName of queryKey) {
+          if (!this.componentNames.has(componentName)) {
+            belongInQuery = false;
+            break;
+          }
+        }
+        if (belongInQuery) {
+          world.queries.set(queryKey.join(","), this);
+        } else {
+          world.queries.delete(queryKey.join(","), this);
+        }
       }
 
       die() {
@@ -139,14 +286,20 @@ class World {
         if (typeof value === "function") value = value();
 
         this.components.set(componentType, value);
+        this.componentNames.add(componentType.name);
         world.entitiesByComponentType.set(componentType, this);
+
+        this.refreshQueries();
 
         return true;
       }
 
       deleteComponent(componentType) {
         if (!this.components.delete(componentType)) return false;
+        this.componentNames.delete(componentType.name);
         world.entitiesByComponentType.delete(componentType, this);
+
+        this.refreshQueries();
 
         return true;
       }

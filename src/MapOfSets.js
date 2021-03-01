@@ -30,10 +30,14 @@ class MapOfSets extends Map {
     let set = this.get(key);
     if (!set) return false;
     if (set.delete(value)) {
-      if (set.size === 0) this._delete(key);
+      if (set.size === 0) return this._delete(key);
       return true;
     }
     return false;
+  }
+
+  clearSet(key) {
+    return this._delete(key);
   }
 }
 
